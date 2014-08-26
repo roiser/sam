@@ -1,0 +1,13 @@
+[
+Type="Job";
+JobType="Normal";
+Executable = "<jdlExecutable>";
+StdError = "gridjob.out";
+StdOutput = "gridjob.out";
+Arguments = "<jdlArguments>";
+InputSandbox =  {"<jdlInputSandboxExecutable>", "<jdlInputSandboxTarball>", "/etc/nagios/globus/hostcert.pem"};
+OutputSandbox = {"gridjob.out"};
+RetryCount = <jdlRetryCount>;
+ShallowRetryCount = <jdlShallowRetryCount>;
+Requirements = other.GlueCEInfoHostName == "<jdlReqCEInfoHostName>";
+]

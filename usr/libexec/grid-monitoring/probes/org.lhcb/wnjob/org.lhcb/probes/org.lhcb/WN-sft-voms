@@ -1,0 +1,88 @@
+#!/bin/bash
+#****** CE/CE-sft-voms
+# NAME
+# CE-sft-voms - Try to create and execute a very simple CSH script which checks several basic commands and tries to retrieves voms proxy extensions. 
+# Fails if voms-proxy-info --all returns non zero code.
+#
+# AUTHOR
+#
+# R.Santinelli@cern.ch
+#
+# LAST UPDATED
+#
+# 2009-04-20
+#
+# LANGUAGE
+#
+# bash
+#
+# SOURCE
+
+NAGIOS_OK=0
+NAGIOS_WARNING=1
+NAGIOS_ERROR=2
+OUTPUT=""
+
+rm -f env-voms.txt voms-test.csh
+cat <<EOF > voms-test.csh
+#!/bin/csh
+echo "running on WN" > env-voms.txt
+hostname >> env-voms.txt
+id >> env-voms.txt
+whoami >> env-voms.txt
+voms-proxy-info --all >> & env-voms.txt
+echo $? >> & env-voms.txt
+echo "Result=$?" >> env-voms.txt
+EOF
+
+chmod +x voms-test.csh
+OUTPUT=${OUTPUT}"VOMS script:"
+
+#OUTPUT=${OUTPUT}`cat voms-test.csh`
+
+OUTPUT=${OUTPUT}"Testing if VOMS script works:"
+
+export TERM=dumb
+#set -x
+OUTPUT=${OUTPUT}`./voms-test.csh`
+#set +x
+
+OUTPUT=${OUTPUT}"VOMS script generated the following output:"
+OUTPUT=${OUTPUT}`cat env-voms.txt`
+
+
+if ( grep 'Error: Cannot find certificate of AC issuer for vo lhcb' env-voms.txt > /dev/null ) ; then
+    rm -f env-voms.txt voms-test.csh
+    echo "Found a problem. Error: Cannot find certificate of AC issuer for vo lhcb" 
+    echo $OUTPUT
+    exit $NAGIOS_ERROR
+fi
+
+if ( grep 'Error: Cannot verify AC signature' env-voms.txt > /dev/null ) ; then
+    rm -f env-voms.txt voms-test.csh
+    echo "Found a problem.Error: Cannot verify AC signature"
+    echo $OUTPUT
+    exit $NAGIOS_ERROR
+fi
+
+if ( grep 't find a valid proxy.' env-voms.txt > /dev/null ) ; then
+    rm -f env-voms.txt voms-test.csh
+    echo "Found a problem.Could not find a valid proxy."
+    echo $OUTPUT
+    exit $NAGIOS_ERROR
+fi
+
+if ( grep 'Result=0' env-voms.txt > /dev/null ) ; then
+  rm -f env-voms.txt voms-test.csh
+  echo "Test succeeding w/o major problem"
+  echo $OUTPUT
+  exit $NAGIOS_OK
+else
+  rm -f env-voms.txt voms-test.csh
+  echo "Test failing: voms-proxy-info return code found to be non zero"
+  echo $OUTPUT
+  exit $NAGIOS_ERROR 
+fi
+
+
+#****

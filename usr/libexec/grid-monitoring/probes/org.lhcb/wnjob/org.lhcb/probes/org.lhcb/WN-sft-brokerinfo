@@ -1,0 +1,47 @@
+#!/bin/bash
+#****** WN-sft-brokerinfo
+# WN-sft-brokerinfo - Check if BrokerInfo works. The procedure is the following:
+# * Firstly check if BrokerInfo file is defined in $GLITE_WMS_RB_BROKERINFO,  $GLITE_WL_RB_BROKERINFO or $EDG_WL_RB_BROKERINFO  variables
+# * Then try to get CE host name using  edg-brokerinfo getCE or glite-brokerinfo getCE command respectively. If previous command result value if different from 0 test is failed.
+
+
+NAGIOS_OK=0
+NAGIOS_WARNING=1
+NAGIOS_ERROR=2
+OUTPUT=""
+
+if [ ${bifile:=${GLITE_WMS_RB_BROKERINFO:-${GLITE_WL_RB_BROKERINFO:-$EDG_WL_RB_BROKERINFO}}} ] ; then
+    OUTPUT=${OUTPUT}"BrokerInfo file: $bifile"
+    #set -x
+    OUTPUT=${OUTPUT}`ls -l $bifile`
+    #set +x
+else
+    OUTPUT=${OUTPUT}"None of variables: GLITE_WMS_RB_BROKERINFO, GLITE_WL_RB_BROKERINFO, "
+    OUTPUT=${OUTPUT}"EDG_WL_RB_BROKERINFO defined! But we will continue anyway.."
+fi
+
+if which glite-brokerinfo > /dev/null; then
+  BI=glite-brokerinfo 
+else
+  BI=edg-brokerinfo
+fi
+OUTPUT=${OUTPUT}"Check if we can get the name of CE using $BI command"
+
+$BI -v getCE > /dev/null
+result=$?
+
+OUTPUT=${OUTPUT}`$BI -v getCE`
+
+if [ $result == 0 ] ; then
+    CEHostName=`$BI getCE`
+    echo "Test passed!"
+    echo "summary: getCE:" $CEHostName
+    echo $OUTPUT
+    exit $NAGIOS_OK
+else
+    echo "Test failed!"
+    echo $OUTPUT
+    exit $NAGIOS_ERROR
+fi
+    
+#****

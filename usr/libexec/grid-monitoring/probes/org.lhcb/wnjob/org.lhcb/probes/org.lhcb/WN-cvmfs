@@ -1,0 +1,254 @@
+# Probe for testing CVMFS functioning at WLCG grid sites, the probe will test the basic functionality of the
+# cvmfs client and tests per mandatory and optional repository. In case of nfs exports a test will be done
+# whether the mount point is of type nfs, no further tests can be done in this case
+
+# Author: stefan.roiser@cern.ch
+
+# History
+# 1.0 : initial version
+# 1.1 : testing of optional repositories, testing of VO_{VO}_SW_DIR variable points to CVMFS mount point
+# 1.2 : testing of nfs export on sites
+
+## variables to configure the probe
+DEF_REPOSITORIES="lhcb.cern.ch"        # space delimited list of repositories to test and must work
+OPT_REPOSITORIES="lhcb-conddb.cern.ch" # space delimited list of optional repositories to test, 
+                                       # any test failing for those will not update the return code of the probe, 
+                                       # the error/warning will still be printed
+VO_NAME="LHCB"                         # name of the VO in all upper case letters
+##
+
+# 
+# some globally used variables
+#
+SCRIPT_REVISION="1.2c"
+
+INFO=0          
+WARNING=1     # CernVM-FS resource consumption high or 
+ERROR=2    # CernVM-FS not working
+
+BRIEF_INFO="OK"
+LONG_INFO=""
+RETURN_STATUS=$INFO
+
+VO_SW_DIR_VAR="VO_${VO_NAME}_SW_DIR"
+VO_SW_DIR_OK="False"
+
+
+#
+# helper functions
+# 
+
+final_report() {
+  if [ "x${VERS_INSTALLED}" != "x" ] ; then 
+    /bin/echo "$BRIEF_INFO, cvmfs vers $VERS_INSTALLED (probe $SCRIPT_REVISION)" 
+  else 
+    /bin/echo "$BRIEF_INFO, cvmfs vers not found (probe $SCRIPT_REVISION)" 
+  fi   
+  /bin/echo -e $LONG_INFO
+  exit $RETURN_STATUS
+}
+
+report() {
+  local kind; kind=$1
+  local msg; msg=$2
+  local strict; strict=$3
+  local stat; stat=${!kind}
+  LONG_INFO="${LONG_INFO}${kind}: ${msg}\n"
+  if [ $stat -gt $RETURN_STATUS -a "x$strict" = "xTrue" ] ; 
+  then 
+    RETURN_STATUS=$stat
+    BRIEF_INFO=$kind
+  fi 
+
+  if [ $stat -eq $ERROR ] ; then final_report ; fi
+}
+
+
+get_xattr() {
+  local _resultvar; _resultvar=$1
+  local xattrname; xattrname=$2
+  local repo; repo=$3
+  local strict; strict=$4
+  local result; result=''
+     
+  result=`/usr/bin/attr -q -g $xattrname $repo`
+  if [ $? -ne 0 ]; then
+    report "WARNING: failed to read $xattrname attribute in $repo" $strict
+  fi
+
+  eval $_resultvar="'$result'"
+}
+
+
+test_nfs_mount() {
+  local nfs='True'
+  report "INFO" "No cvmfs rpms found on WN, checking if this WN uses nfs mounting of CVMFS repositories" "True"
+  report "INFO" "Testing mandatory cvfms repositories" "True"
+  for REPO in $DEF_REPOSITORIES; do
+    nfs_mnt="/cvmfs/$REPO"
+    if [ -d $nfs_mnt ] ; then
+      if [ "x`/usr/bin/stat -f -L -c %T $nfs_mnt`" = "xnfs" ] ; then 
+        VERS_INSTALLED="nfs"
+        report "INFO" "Mandatory mount point $nfs_mnt is nfs mount point" "True"
+      else
+        report "ERROR" "Mandatory mount point $nfs_mnt is not a nfs mount point" "True"
+      fi
+    else report "ERROR" "Mandatory mount point $nfs_mnt does not exist" "True"
+    fi     
+  done
+
+  report "INFO" "Testing optional cvmfs repositories (any WARNING/ERROR reported will not update the return code of the probe)" "True"
+  for REPO in $OPT_REPOSITORIES; do
+    nfs_mnt="/cvmfs/$REPO"
+    if [ -d $nfs_mnt ] ; then 
+      if [ "x`/usr/bin/stat -f -L -c %T $nfs_mnt`" = "xnfs" ] ; then report "INFO" "Optional mount point $nfs_mnt" is nfs mount point" "False"
+      else report "ERROR" "Optional mount point $nfs_mnt" is not a nfs mount point" "False"
+      fi
+    fi
+  done
+
+  final_report
+}
+
+
+test_basic_functionality() {
+  # Check if rpm is installed
+  RPM_INST=`rpm -qa | grep -E "cvmfs-"`
+  if [ "x$RPM_INST" = "x" ] 
+  then 
+    test_nfs_mount
+  else
+    RPM_INST=`/bin/echo $RPM_INST | tr \\\\n " "`
+    report "INFO" "CVMFS RPM(s) installed: $RPM_INST" "True"
+  fi
+
+  # Read repository config
+  if [ -f /etc/cvmfs/config.sh ]
+  then
+    report "INFO" "Executing /etc/cvmfs/config.sh" "True"
+    . /etc/cvmfs/config.sh
+  else report "ERROR" "cannot continue /etc/cvmfs/config.sh missing" "True"
+  fi
+
+  # Read configuration
+  cvmfs_readconfig
+  if [ $? -ne 0 ]; then report "ERROR" "failed to read CernVM-FS configuration" "True" ; fi 
+
+  # Check that VO_SW_DIR env variable exists
+  VO_SW_DIR_VAL_ORG="${!VO_SW_DIR_VAR}"
+  VO_SW_DIR_VAL=`pushd ${VO_SW_DIR_VAL_ORG} > /dev/null 2>&1; pwd -P ; popd > /dev/null 2>&1`
+  if [ "x${VO_SW_DIR_VAL_ORG}" != "x${VO_SW_DIR_VAL}" ] ; then report "INFO" "variable ${VO_SW_DIR_VAR} contains symlinks (${VO_SW_DIR_VAL_ORG} -> ${VO_SW_DIR_VAL})" "True" ; fi
+  if [ "x" = "x${VO_SW_DIR_VAL}" ] ; then report "ERROR" "environment variable ${VO_SW_DIR_VAR} not defined" "True" ; fi
+
+}
+
+
+test_repository() {
+  local repo; repo=$1
+  local strict; strict=$2
+
+
+  FQRN=`cvmfs_mkfqrn $repo`
+  ORG=`cvmfs_getorg $FQRN`
+  local mnt_repo=${CVMFS_MOUNT_DIR}/${FQRN}
+  report "INFO" "- Testing repository $mnt_repo -" $strict
+  cvmfs_readconfig $FQRN
+  if [ $? -ne 0 ] ; then report "ERROR" "failed to read $FQRN configuration" $strict
+  else report "INFO" "configuration successfully read" $strict
+  fi
+
+  cd "${mnt_repo}" && ls . > /dev/null
+  if [ $? -ne 0 ]; then report "ERROR" "failed to access $FQRN" $strict
+  else report "INFO" "repository $mnt_repo available" $strict
+  fi
+
+  get_xattr VERS_LOADED version $mnt_repo $strict
+  report "INFO" "CVMFS version loaded $VERS_LOADED" $strict
+
+  VERS_INSTALLED=`/usr/bin/cvmfs2 --version 2>&1 | awk '{ print $NF }'`
+  report "INFO" "CVMFS version installed $VERS_INSTALLED" $strict
+
+  get_xattr REPO_REVISION revision $mnt_repo $strict
+  report "INFO" "repository revision $REPO_REVISION" $strict
+
+  get_xattr CVMFS_IOERR nioerr $mnt_repo $strict
+  if [ $CVMFS_IOERR -gt 0 ] ; then report "ERROR" "$CVMFS_IOERR I/O errors detected" $strict; fi
+
+  get_xattr CVMFS_USEDFD usedfd $mnt_repo $strict
+  get_xattr CVMFS_MAXFD maxfd $mnt_repo $strict
+  CVMFS_FDRATIO=$[$CVMFS_USEDFD*100/$CVMFS_MAXFD]
+  if [ $CVMFS_FDRATIO -gt 95 ]; then report "ERROR" "file descriptors almost exhausted (${CVMFS_FDRATIO}%)" $strict; fi  
+  if [ $CVMFS_FDRATIO -gt 80 ]; then report "WARNING" "low on open file descriptors (${CVMFS_FDRATIO}%)" $strict; fi
+
+  get_xattr CVMFS_NUMCTLG nclg $mnt_repo $strict
+  if [ $[$CVMFS_NUMCTLG*10] -gt $CVMFS_MAXFD ]; then report "WARNING: high number of catalogs loaded ($CVMFS_NUMCTLG)" $strict; fi
+
+  get_xattr CVMFS_PID pid $mnt_repo $strict
+  CVMFS_MEM=`/bin/ps -p $CVMFS_PID -o rss= | /bin/sed 's/ //g'`
+  TOT_MEM=`cat /proc/meminfo | grep MemTotal | awk '{ print $2 }'`
+  if [ $PIPESTATUS -ne 0 ] 
+  then report "WARNING" "failed to read memory consumption" $strict
+  else report "INFO" "memory consumption $CVMFS_MEM kB (machine has $TOT_MEM kB)" $strict
+  fi
+
+  if [ -f "${mnt_repo}/.cvmfsdirtab" ]; then
+    cat "${mnt_repo}/.cvmfsdirtab" > /dev/null 2>&1
+    if [ $? -ne 0 ]; then report "ERROR" "failed to read .cvmfsdirtab from repository" $strict; fi
+  fi
+
+  if [ "x${VO_SW_DIR_VAL}" = "x${mnt_repo}" ] ; then VO_SW_DIR_OK="True" ; fi
+
+  # connectivity tests
+  CVMFS_HOSTS=`/bin/echo "$CVMFS_SERVER_URL" | /bin/sed 's/,\|;/ /g' | sed s/@org@/$ORG/g | sed s/@fqrn@/$FQRN/g`
+  CVMFS_PROXIES=`/bin/echo "$CVMFS_HTTP_PROXY" | /bin/sed 's/;\||/ /g'`
+  report "INFO" "testing network connectivity - SERVERS cross PROXIES" $strict
+  report "INFO" "Servers: $CVMFS_HOSTS" $strict
+  report "INFO" "Proxies: $CVMFS_PROXIES" $strict
+  get_xattr CVMFS_TIMEOUT_PROXY timeout $mnt_repo $strict
+  get_xattr CVMFS_TIMEOUT_DIRECT timeout_direct $mnt_repo $strict
+  for HOST in $CVMFS_HOSTS
+  do
+    for PROXY in $CVMFS_PROXIES
+    do
+      if [ $PROXY != "DIRECT" ]; then
+        PROXY_ENV="env http_proxy=$PROXY"
+        TIMEOUT=$CVMFS_TIMEOUT_PROXY
+      else
+        PROXY_ENV=
+        TIMEOUT=$CVMFS_TIMEOUT_DIRECT
+      fi
+      URL="${HOST}/.cvmfspublished"
+      $PROXY_ENV /usr/bin/curl -H "Pragma:" -f --connect-timeout $TIMEOUT $URL > /dev/null 2>&1
+      ret=$?
+      if [ $ret -ne 0 ]; then report "WARNING" "connection problem ($HOST via $PROXY) (curl return code: $ret)" $strict ; fi
+    done
+  done
+  report "INFO" "end of network connectivity tests" $strict
+}
+
+
+#
+# Start of test procedure
+#
+
+report "INFO" "-- Executing basic tests --" "True"
+test_basic_functionality
+
+report "INFO" "-- Testing repositories --" "True"
+for REPO in $DEF_REPOSITORIES ; do test_repository $REPO True ; done
+
+if [ "x${VO_SW_DIR_OK}" = "xFalse" ] ; then report "ERROR" "environment variable ${VO_SW_DIR_VAR}=${VO_SW_DIR_VAL} does not point to any of the CVMFS mount points" True ; 
+else report "INFO" "Variable ${VO_SW_DIR_VAR} points to CVMFS mount point ${VO_SW_DIR_VAL}" True ; fi
+
+
+# note the tests on the optional repositories will stop on the first ERROR (but not updating the return code)
+if [ "x${OPT_REPOSITORIES}" != "x" ] ; then
+  report "INFO" "Mandatory tests exectuted successfully, now continuing with testing optional repositories" "True"
+  report "INFO" "for these tests any WARNING/ERROR printed in the log is not updating the return code of the probe" "True"
+  for REPO in $OPT_REPOSITORIES ; do test_repository $REPO False ; done
+fi
+
+# 
+# Report
+#
+final_report

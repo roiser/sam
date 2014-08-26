@@ -1,0 +1,38 @@
+#!/bin/bash
+#****** WN-sft-csh
+# NAME
+#Try to create and execute a very simple CSH script which dumps environment variable to a file. 
+# Fails if CSH script is unable to execute and the dump file is missing.
+#
+
+
+NAGIOS_OK=0
+NAGIOS_ERROR=2
+OUTPUT=""
+rm -f env-csh.txt csh-test.csh
+cat <<EOF > csh-test.csh
+#!/bin/csh
+env | sort > env-csh.txt
+EOF
+chmod +x csh-test.csh
+OUTPUT="Testing if CSH script works:\n" 
+#set -x
+OUTPUT=${OUTPUT}`./csh-test.csh`
+#set +x
+
+OUTPUT=${OUTPUT}"CSH script generated the following output:\n"
+OUTPUT=${OUTPUT}`cat env-csh.txt`
+if ( grep PATH env-csh.txt > /dev/null ) ; then
+    rm -f env-csh.txt csh-test.csh
+    echo "Test CSH succeding"
+    echo $OUTPUT
+    exit $NAGIOS_OK
+else
+    rm -f env-csh.txt csh-test.csh
+    echo "Test CSH failing"
+    echo $OUTPUT
+    exit $NAGIOS_ERROR
+fi
+
+
+#****

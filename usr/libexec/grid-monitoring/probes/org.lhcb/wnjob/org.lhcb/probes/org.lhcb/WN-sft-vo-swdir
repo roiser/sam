@@ -1,0 +1,173 @@
+#!/bin/bash
+
+#****** WN-sft-vo-swdir
+#  Detects the software directory for LHCb and runs sequentially few tests.
+
+
+TIMEOUT=150
+WARNING=60
+NAGIOS_OK=0
+NAGIOS_WARNING=1
+NAGIOS_ERROR=2
+OUTPUT=""
+NAGIOS_RESULT=0
+kill_all_children() {
+   ppid=$1
+   for pid in `ps -opid= --ppid $ppid`; do
+      kill_all_children $pid
+   done
+   kill -9 $ppid 2>/dev/null
+}
+
+
+list() {
+    directory_to_list=$1
+   #time consuming command, run it in subshell to get right process id
+   # sr # ( time ls -R $directory_to_list | wc -l )&
+   ( time ls $directory_to_list | wc -l )&
+   # now ensure that the above command does not run too long
+   cmd_pid=$!
+   ( sleep $TIMEOUT
+     echo >&2 "Quota Timeout"
+     touch /tmp/failure_sam
+     #not only kill parent process, but also its children
+     kill_all_children $cmd_pid
+   ) &
+   kill_pid=$!
+   wait $cmd_pid
+   retval=$?
+   OUTPUT=${OUTPUT}`kill $kill_pid 2>/dev/null`
+}
+
+
+list_warning() {
+    directory_to_list=$1
+   #time consuming command, run it in subshell to get right process id
+   # sr # ( time ls -R $directory_to_list | wc -l )&
+   ( time ls $directory_to_list | wc -l )&
+   # now ensure that the above command does not run too long
+   cmd_pid=$!
+   ( sleep $WARNING
+     echo >&2 "Warning Timeout"
+     touch /tmp/warning_sam
+     kill_all_children $cmd_pid
+   ) &
+   kill_pid=$!
+   wait $cmd_pid
+   retval=$?
+   OUTPUT=${OUTPUT}`kill $kill_pid 2>/dev/null`
+}
+
+VO=`echo $SAME_VO | tr [:lower:] [:upper:]`
+VO="LHCB"
+
+vo_var=VO_${VO}_SW_DIR
+eval vo_dir=\$$vo_var
+OUTPUT=${OUTPUT}"Checking variable: $vo_var=$vo_dir"
+
+case $vo_dir in '') echo "Test Failed: Shared area is undefined";echo $OUTPUT;exit $NAGIOS_ERROR;;
+*) OUTPUT=${OUTPUT}"Variable properly defined to $vo_dir";;
+esac
+
+#check software directory
+
+#set -x
+OUTPUT=${OUTPUT}`ls -dl $vo_dir`
+retval_trivial=$?
+
+if [ $retval_trivial != 0 ]
+then
+  echo "Test failing immediately: not shared area mounted at all"
+  echo $OUTPUT
+  exit $NAGIOS_ERROR
+fi
+
+OUTPUT=${OUTPUT}"content of $vo_dir"
+OUTPUT=${OUTPUT}`ls -l ${vo_dir}/`
+OUTPUT=${OUTPUT}"content of ${vo_dir}/lib"
+OUTPUT=${OUTPUT}`ls -l ${vo_dir}/lib`
+
+lib_exist=`ls -l  ${vo_dir}/ |grep lib |wc -l `
+
+if [ $lib_exist == 0 ]
+then
+  echo "Test Failed: Shared area is empty"
+  echo $OUTPUT
+  exit $NAGIOS_ERROR
+fi 
+
+vo_to_list_heavily=$vo_dir/lib/lcg/external/ROOT
+other_to_list=$vo_dir/lib/lcg/external/Grid
+
+#please add this commented part when running at regime.
+
+#added in SAM the 5/8/2010 to check test directories are existing
+
+#ls -l  ${vo_to_list_heavily}
+#heavy_exist=$?
+#if [ $heavy_exist != 0 ]
+#then
+#  echo "Directory ${vo_to_list_heavily} expected to exist does not: test failing"
+#  echo "</pre>"
+#  exit $SAME_ERROR
+#fi 
+
+
+#ls -l ${other_to_list}
+#other_exist=$?
+#if [ $other_exist != 0 ]
+#then
+#  echo "Directory ${other_to_list} expected to exist does not: test failing"
+#  echo "</pre>"
+#  exit $SAME_ERROR
+#fi 
+#end of the 05/08/2010 modification
+
+
+OUTPUT=${OUTPUT}`list $vo_to_list_heavily`
+#put a check on /tmp/failure_sam instead
+
+if [ -f /tmp/failure_sam ]
+then
+  # sr # echo "Test failed: the ls -R command on a subdirectory of the shared area took more than $TIMEOUT seconds while are expected less than 50 seconds"
+  echo "Test failed: the ls command on a subdirectory of the shared area took more than $TIMEOUT seconds while are expected less than 50 seconds"
+  echo $OUTPUT
+  rm /tmp/failure_sam
+  exit $NAGIOS_ERROR
+else  
+  OUTPUT=${OUTPUT}`list_warning $other_to_list`
+  if [ -f /tmp/warning_sam ]
+  then
+   export OUTPUT=$OUTPUT"Test not completely successful: it took more than $WARNING seconds while are expected less than 30 second" 
+   #echo $OUTPUT 
+   rm /tmp/warning_sam
+   export NAGIOS_RESULT=$NAGIOS_WARNING
+ else
+   export OUTPUT="Test succeeded"$OUTPUT
+   export NAGIOS_RESULT=$NAGIOS_OK
+ fi
+fi
+
+# sr # ls -R $vo_to_list_heavily > /dev/null 2>error
+ls $vo_to_list_heavily > /dev/null 2>error
+# sr # ls -R $other_to_list > /dev/null 2>>error 
+ls $other_to_list > /dev/null 2>>error 
+permission=`cat error |grep "Permission denied" |wc -l`
+
+if [ $permission == 0 ]
+then
+ if [ $NAGIOS_RESULT == $SAME_WARNING ]
+ then
+   echo "Permissions are OK but some degradations of performances has been observed"
+   echo $OUTPUT
+ else
+   echo "Test fully successful"
+   echo $OUTPUT
+ fi
+else
+ echo "Warning: some directories have wrong permissions"
+ echo $OUTPUT
+ NAGIOS_RESULT=$NAGIOS_WARNING
+fi
+
+exit $NAGIOS_RESULT

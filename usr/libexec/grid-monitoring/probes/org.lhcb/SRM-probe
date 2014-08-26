@@ -1,0 +1,599 @@
+#!/usr/bin/env python
+
+import time
+import sys
+
+try:
+    from DIRAC.Core.Base.Script                     import initialize
+    initialize( enableCommandLine = False )
+    from DIRAC.Core.Base.Script                     import parseCommandLine
+#    parseCommandLine()
+    from DIRAC.Resources.Storage.StorageFactory     import StorageFactory
+    from DIRAC.Core.Utilities.File                  import getSize
+    from gridmon import probe
+    from gridmon import utils
+    from gridmon import gridutils
+    from DIRAC import gLogger
+#    gLogger.setLevel('INFO')
+    gLogger.setLevel('FATAL') #shut up DIRAC
+    
+except ImportError,e:
+    print "UNKNOWN: Error loading modules : %s" % str(e)
+    sys.exit(3)
+
+
+class SRMMetrics(probe.MetricGatherer):
+    """ """
+    ns = 'org.lhcb'
+    srcFile = '/etc/group'
+
+    def __init__(self, tuples):
+        probe.MetricGatherer.__init__(self, tuples, 'SRM')
+        # command line parameters required by the probe/metrics
+        # and usage hints; only "long" parameters MUST be used
+        self.usage = """     Metrics specific parameters:
+
+org.lhcb.SRM-*
+--file <name> File to copy to SRM (Default %s)
+""" % (self.srcFile)
+
+        # probe description
+        self.probeinfo = { 'probeName' : self.ns+'.'+self.serviceType+'-probe',
+                           'probeVersion' : '0.1',
+                           'serviceVersion' : '>= 0.1.1'}
+        # metrics description
+        # those are mandatory keys. one can add others.
+        self._metrics = {
+                        'PutExistsFile' : {
+                                # required keys
+                                'metricDescription' : "Put a file and check its existence on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutRemoveFile' : {
+                                # required keys
+                                'metricDescription' : "Put a file and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutGetFile' : {
+                                # required keys
+                                'metricDescription' : "Put a file, get a copy locally and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutIsFile' : {
+                                # required keys
+                                'metricDescription' : "Put a file, check it is really a file and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutGetFileMetaData' : {
+                                # required keys
+                                'metricDescription' : "Put a file, check the metadata and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutGetFileSize' : {
+                                # required keys
+                                'metricDescription' : "Put a file, check the size and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutPrestageFile' : {
+                                # required keys
+                                'metricDescription' : "Put a file, issue a prestage command and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutFilegetTransportURL' : {
+                                # required keys
+                                'metricDescription' : "Put a file, retrieve the tURL and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutPinRelease' : {
+                                # required keys
+                                'metricDescription' : "Put a file, pin it, release the pin and  remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+                        'PutPrestageStatus' : {
+                                # required keys
+                                'metricDescription' : "Put a file, issue a prestage, check the status of the request and remove afterwards on SRM.",
+                                'metricLocality'    : 'local',
+                                'metricType'        : 'status',
+                                'metricVersion'     : '0.1',
+                                # optional keys - example
+                                'cmdLineOptions'    : ['file=',
+                                                       'space-token=',],
+                                'metricChildren'    : []
+                                },
+
+                        }
+
+        # create mapping of metric names to the class methods
+        self.set_metrics(self._metrics)
+
+        # mandatory call to parent class's parse_cmd_args()
+        # 'cmdopts' will be checked with getopt.getopt()
+        #cmdopts = ['opt-one=']
+        #self.parse_cmd_args(tuples, cmdopts=cmdopts, func=self.parse_args)
+        # or (as parse_cmd_args() by default calls self.parse_args())
+        #self.parse_cmd_args(tuples, cmdopts=cmdopts)
+        # or if the command line options are defined with 'cmdLineOptions' key
+        #    in the dictionary describing the metrics you may simply call
+        self.parse_cmd_args(tuples)
+
+        # working directory for metrics
+        self.make_workdir()
+
+        # Define your class variables here.
+
+        self.lcg_gfal_ver = gridutils.get_lcg_util_gfal_ver()
+
+    def setUp(self):
+	status = 'OK'
+        factory = StorageFactory()
+        storageElementToTest = self.sp_token
+        protocol = 'SRM2'
+        res = factory.getStorages(storageElementToTest, [protocol])
+        if not res['OK']:
+            prints "Test no good: failed initialising internal DIRAC object"
+            return ('CRITICAL', res['Message'], res['Message'])
+        storageDetails = res['Value']
+        self.storage = storageDetails['StorageObjects'][0]
+        self.storage.changeDirectory('lhcb/test/nagios-unit-test/'+storageElementToTest)
+        destDir = self.storage.getCurrentURL('')['Value']
+        res = self.storage.createDirectory(destDir)
+        if not res['OK']:
+            prints "Test no GOOD: failed to create remote directory"+destDir+
+            return ('CRITICAL', res['Message'], res['Message'])
+        self.numberOfFiles = 1
+	return (status,True,True)
+
+    def parse_args(self, opts):
+        """ """
+        for o,v in opts:
+            if o == '--file':
+                self.srcFile = v
+            elif o == '--space-token':
+                self.sp_token = v
+
+    def metricPutExistsFile(self):
+        """ """
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+	#self.workdir_metirc 
+        status = 'OK'
+        srcFile=self.srcFile
+        srcFileSize = getSize(srcFile)
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        self.printd(" remote file is: "+remoteFile+"  \n")
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        existsFileRes = self.storage.exists(remoteFile)
+        removeFileRes = self.storage.removeFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not existsFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to verify file exists'
+            return ('CRITICAL', res['Message'], res['Message'])
+#        self.prints(status) # status message
+        return status
+    
+    def metricPutRemoveFile(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+        testFileName = 'testFile.%s' % time.time()
+
+        destFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {destFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Make sure we are able to remove the file
+        removeFileRes = self.storage.removeFile(destFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+        
+    def metricPutGetFile(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']   
+
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Then make sure we can get a local copy of the file
+        getFileRes = self.storage.getFile(remoteFile)
+        # Cleanup the local and remote mess
+        os.remove(testFileName)
+        removeFileRes = self.storage.removeFile(remoteFile)
+
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not getFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to get remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+    def metricPutIsFile(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Check we are able to determine that it is a file
+        isFileRes = self.storage.isFile(remoteFile)
+        # Clean up the remote mess
+        removeFileRes = self.storage.removeFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not isFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to check remote file is an effective file '
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+
+
+    def metricPutGetFileMetaData(self):
+
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Check that we can get the file metadata
+        getMetadataRes = self.storage.getFileMetadata(remoteFile)
+        removeFileRes = self.storage.removeFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not getMetadataRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to get remote file metadata'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+
+    def metricPutGetFileSize(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}  
+        putFileRes = self.storage.putFile(fileDict)
+        # Check that we can get the file size
+        getSizeRes = self.storage.getFileSize(remoteFile)
+        # Clean up the remote mess
+        removeFileRes = self.storage.removeFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not getSizeRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to get remote file size'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+    def metricPutPrestageFile(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Check that we can issue a stage request
+        prestageRes = self.storage.prestageFile(remoteFile)
+        # Clean up the remote mess
+        removeFileRes = self.storage.removeFile(remoteFile)
+        # Check what happens with deleted files
+        #deletedPrestageRes = self.storage.prestageFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not prestageRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to issue a prestage command against remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+
+        # Check that pre-staging non-existant file fails
+        #    self.assert_(deletedPrestageRes['OK'])
+        #    self.assert_(deletedPrestageRes['Value']['Failed'].has_key(remoteFile))
+        #    expectedError = "No such file or directory"
+        #    self.assert_(expectedError in deletedPrestageRes['Value']['Failed'][remoteFile])
+
+    def metricPutFilegetTransportURL(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        #Check that we can get a turl
+        getTurlRes = self.storage.getTransportURL(remoteFile)
+        # Clean up the remote mess
+        removeFileRes = self.storage.removeFile(remoteFile)
+        # Try and get a turl for a non existant file
+        #failedGetTurlRes = self.storage.getTransportURL(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not getTurlRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to retrieve the tURL of the remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+
+
+        #Check the get turl with non existant file operation
+        #    self.assert_(failedGetTurlRes['OK'])
+        #    self.assert_(failedGetTurlRes['Value']['Failed'].has_key(remoteFile))
+        #    expectedError = "File does not exist"
+        #    self.assert_(expectedError in failedGetTurlRes['Value']['Failed'][remoteFile])
+
+    def metricPutPinRelease(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+        testFileName = 'testFile.%s' % time.time()
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        #Check that we can pin the file
+        pinFileRes = self.storage.pinFile(remoteFile)
+        srmID=''
+        if pinFileRes['OK']:
+            if pinFileRes['Value']['Successful'].has_key(remoteFile):
+                srmID = pinFileRes['Value']['Successful'][remoteFile]
+        # Check that we can release the file
+        releaseFileRes = self.storage.releaseFile({remoteFile:srmID})
+        # Clean up the mess
+        removeFileRes = self.storage.removeFile(remoteFile)
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not pinFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to pin the remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not releaseFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to release the pin for the remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        return status
+        
+
+    def metricPutPrestageStatus(self):
+        rc, summary, detmsg = self.setUp()
+        if rc != 'OK':
+            return rc, summary, detmsg
+        
+        status = 'OK'
+        srcFile=self.srcFile
+        self.printd(self.lcg_gfal_ver)
+        self.printd('Testing: %s' % self.hostName)
+        self.printd('File to copy: %s' % self.srcFile)
+        self.printd('SP Token: %s' % self.sp_token, v=2)
+        srcFileSize = getSize(srcFile)
+        testFileName = 'testFile.%s' % time.time() 
+        remoteFile = self.storage.getCurrentURL(testFileName)['Value']
+        fileDict = {remoteFile:srcFile}
+        putFileRes = self.storage.putFile(fileDict)
+        # Check that we can issue a stage request
+        prestageRes = self.storage.prestageFile(remoteFile)
+        srmID = ''
+        if prestageRes['OK']:
+            if prestageRes['Value']['Successful'].has_key(remoteFile):
+                srmID = prestageRes['Value']['Successful'][remoteFile]
+        # Take a quick break to allow the SRM to realise the file is available
+        sleepTime = 10
+        # print 'Sleeping for %s seconds' % sleepTime
+        time.sleep(sleepTime)
+        # Check that we can monitor the stage request
+        prestageStatusRes = self.storage.prestageFileStatus({remoteFile:srmID})        
+        removeFileRes = self.storage.removeFile(remoteFile)
+    
+        if not putFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed putting file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not prestageRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to issue a prestage on the remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not prestageStatusRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to release the check the status of the prestage request on the remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+        if not removeFileRes['OK']:
+            status='CRITICAL'
+            prints 'Test not good: failed to remove remote file'
+            return ('CRITICAL', res['Message'], res['Message'])
+
+
+runner = probe.Runner(SRMMetrics, probe.ProbeFormatRenderer())
+sys.exit(runner.run(sys.argv))

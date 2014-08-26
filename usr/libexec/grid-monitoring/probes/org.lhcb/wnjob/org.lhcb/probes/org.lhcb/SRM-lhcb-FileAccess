@@ -1,0 +1,236 @@
+#!/bin/bash  
+##########################################################################################################
+# 
+# SRM-lhcb-FileAccess: Author R.Santinelli 20/02/2008
+# review 1: 07/01/2010
+# review 2: 05/02/2010 
+# review 3: 04/03/2010
+# Nagios migrated: 01/06/2010
+# 
+# The test does: 
+# 
+# 1. Retrieves from .brokerinfo the region the job landed on
+# 2. For each region retrieves the RDST test SURL and the supported protocol
+# 3. Retrieves the TURL using SURL and protocol for that region via SRMv2 interface
+# 4. Installs and configures  root application 
+# 5. Builds a ROOT macro and runs it by opening the turl returned by SRMv2
+# 6. Publishes the SAM results (generates from scratch necessary SAM files and run SAM client from the WN)
+#
+##########################################################################################################
+
+NAGIOS_OK=0
+NAGIOS_WARNING=1
+NAGIOS_ERROR=2
+
+country_code=""
+TURL=""
+SURL=""
+HOST_CE=""
+export protocols="dcap gsidcap file root rfio"
+touch SAMOUT
+date=`date +"%H:%M:%S"`
+
+edg-brokerinfo getCE > /dev/null 2>&1
+if [ "$?" == "0" ];then 
+    export HOST_CE=`edg-brokerinfo getCE | cut -d: -f1 2 >>SAMOUT`
+else
+    export HOST_CE=`glite-brokerinfo getCE | cut -d: -f1 2>>SAMOUT` 
+fi
+
+if [ x"$HOST_CE" == "x" ];then
+    export HOST_CE=`hostname`
+fi
+
+echo "$date Running file access test on Computing Element $HOST_CE" >> SAMOUT
+echo "$date WN: `hostname`" >>SAMOUT
+echo "$date user: `whoami`" >> SAMOUT
+for i in `echo $HOST_CE | tr '.' ' '`;do
+    var=${i}
+done
+
+
+country_code=$var
+
+echo "$date Country code is $country_code" >>SAMOUT
+
+if [ "$country_code" == "" ];then
+  echo "No surl found or domain found from brokerinfo" 
+  cat SAMOUT
+  exit $NAGIOS_WARNING
+fi
+
+case $country_code in
+    ch)    export SURL="srm://srm-lhcb.cern.ch:8443/castor/cern.ch/grid/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst" ; export nodename="srm-lhcb.cern.ch"   ;;
+    it)    export SURL="srm://storm-fe-lhcb.cr.cnaf.infn.it/t1d1/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst" ; export nodename="storm-fe-lhcb.cr.cnaf.infn.it"   ;;
+    uk)    export SURL="srm://srm-lhcb.gridpp.rl.ac.uk/castor/ads.rl.ac.uk/prod/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst"; export nodename="srm-lhcb.gridpp.rl.ac.uk"  ;;
+    es)    export SURL="srm://srmlhcb.pic.es/pnfs/pic.es/data/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst"; export nodename="srmlhcb.pic.es"  ;;
+    de)    export SURL="srm://gridka-dCache.fzk.de/pnfs/gridka.de/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst"; export nodename="gridka-dCache.fzk.de"   ;;
+    fr)    export SURL="srm://ccsrm.in2p3.fr/pnfs/in2p3.fr/data/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst"; export nodename="ccsrm.in2p3.fr"   ;;
+    nl)    export SURL="srm://srm.grid.sara.nl/pnfs/grid.sara.nl/data/lhcb/data/2009/DST/00005875/0000/00005875_00000002_1.dst"; export nodename="srm.grid.sara.nl"  ;; esac
+
+date=`date +"%H:%M:%S"` 
+echo "checking relevant information *before* sourcing LbLogin" >> SAMOUT 2>&1
+
+echo "$date : now setting LHCb environment" >> SAMOUT 2>&1
+echo "sourcing $VO_LHCB_SW_DIR/lib/LbLogin.sh ....." >> SAMOUT 2>&1
+source $VO_LHCB_SW_DIR/lib/LbLogin.sh >> SAMOUT 2>&1
+export CMTCONFIG="i686-slc5-gcc43-opt" 
+echo "variable CMTCONFIG = $CMTCONFIG" >> SAMOUT 2>&1
+
+
+date=`date +"%H:%M:%S"` 
+echo "$date : LHCb environment setup" >> SAMOUT 2>&1
+
+echo "$date : running a first check whether the SRM endpoint is reachable" >>SAMOUT
+echo "$date : lcg-gt  --srm-timeout 300 -D srmv2 -T srmv2 $SURL gsiftp" >> SAMOUT
+date=`date +"%H:%M:%S"` >> SAMOUT
+lcg-gt --srm-timeout 300 -D srmv2 -T srmv2 $SURL gsiftp > ttt.$$ 2>&1
+gsoap=`cat ttt.$$ |grep SOAP |wc -l`
+unreco=`cat ttt.$$ |grep 'unrecognized option ' |wc -l`
+
+if [ "$gsoap" != "0" ];then
+    echo "SURL:$SURL" >>SAMOUT
+    echo "NODENAME:$nodename" >> SAMOUT
+    echo "Endpoint is down and cannot proceed" >>SAMOUT
+    cat ttt.$$ >> SAMOUT
+    rm ttt.$$
+    echo "Test Failed: endpoint is dowm"
+    cat SAMOUT 
+    exit $NAGIOS_ERROR
+fi
+if [ $unreco == "0" ];then 
+ echo >>SAMOUT
+ date=`date +"%H:%M:%S"`
+ echo "$date : The probe lcg-gt produced the following output ">>SAMOUT
+ echo >>SAMOUT
+ cat ttt.$$ >> SAMOUT
+ echo "******************************************">>SAMOUT
+ date=`date +"%H:%M:%S"`
+ echo "$date : Now running the lcg-gt against all possible protocols to find the supported one and extract tURL" >> SAMOUT
+ rm ttt.$$ >/dev/null 2>&1
+fi
+
+for i in $protocols; do 
+   date=`date +"%H:%M:%S"`
+   echo "$date : Attempting protocol:$i .....">>SAMOUT
+   if [ $unreco == "0" ];then 
+    echo "Version of lcg_utils client....OK" >>SAMOUT 2>&1
+    TURLO=`lcg-gt --srm-timeout 300 -D srmv2 -T srmv2 $SURL $i >>SAMOUT 2>&1`; 
+    if [ "$?" == "0" ];then 
+     num=`echo $TURLO |grep gsiftp | wc -l`
+	if [ "$num" != "1" ]; then 
+		export PROTOCOL=$i
+		break
+	fi
+    fi
+    echo " ">>SAMOUT
+   else
+     echo "Very old version of lcg_utils client...." >>SAMOUT 2>&1
+     TURLO=`lcg-gt -t 300 -D srmv2 -T srmv2 $SURL $i >>SAMOUT 2>&1`; 
+     if [ "$?" == "0" ];then 
+     num=`echo $TURLO |grep gsiftp | wc -l`
+	if [ "$num" != "1" ]; then 
+		export PROTOCOL=$i
+		break
+	fi
+     fi
+     echo " ">>SAMOUT
+   fi
+done;
+
+echo "SURL:$SURL" >>SAMOUT
+echo "NODENAME:$nodename" >> SAMOUT
+
+if [ "x$PROTOCOL" == "x" ]; then 
+    date=`date +"%H:%M:%S"`
+    echo "$date : None of the protocols in this list are suitable" >>SAMOUT
+    echo "{dcap gsidcap file root rfio}" >> SAMOUT
+    echo "Test  failed. None of the protocols in this list are suitable"
+    cat SAMOUT
+    exit $NAGIOS_ERROR
+fi
+
+echo "Protocol Found:$PROTOCOL" >>SAMOUT
+
+
+rm rdfile.C  > /dev/null 2>&1
+
+#Now running lcg-gt to retrieve the tURL and handling a bit more
+
+if [ $unreco == "0" ];then 
+ export TURL=`lcg-gt --srm-timeout 300 -D srmv2 -T srmv2 $SURL $PROTOCOL | awk ' NR == 1' 2>>SAMOUT`
+else
+ export TURL=`lcg-gt -t 300 -D srmv2 -T srmv2 $SURL $PROTOCOL | awk ' NR == 1' 2>>SAMOUT`
+fi
+
+#echo $TURL | grep "gsidcap:" > /dev/null 2>&1
+#if [ "$?" == "0" ];then 
+#  export TURL="dcap:$TURL"
+#fi
+    date=`date +"%H:%M:%S"`
+
+echo "$date: turl retrieved is : $TURL ">> SAMOUT
+
+if [ "x$TURL" == "x" ]; then
+ echo "$date : No turl available in 300 seconds: problem with lcg-gt" >>SAMOUT
+ echo "Test Failed. No turl available in 300 seconds: problem with lcg-gt" 
+ date=`date +"%H:%M:%S"`
+ echo "$date using the lcg_utils version" >> SAMOUT
+ lcg-gt --version >> SAMOUT
+ cat SAMOUT
+ exit $NAGIOS_ERROR
+fi 
+
+date=`date +"%H:%M:%S"`
+echo "$date : now setting DaVinci Project" >> SAMOUT 
+
+. SetupProject.sh DaVinci gfal CASTOR lfc oracle dcache_client --use-grid >> SAMOUT 2>&1
+
+date=`date +"%H:%M:%S"`
+echo "$date : DaVinci setup" >> SAMOUT 
+#alias >> SAMOUT 2>&1
+
+echo "checking relevant information *after* sourcing LbLogin and SetupProject DaVinci" >> SAMOUT 2>&1
+
+echo "$date: writing the root macro for processing tURL" >> SAMOUT 
+
+echo "void rdfile()" > rdfile.C
+echo "{" >> rdfile.C
+echo 'TFile* f = TFile::Open("'"$TURL"'");' >> rdfile.C
+echo "f->ls();" >> rdfile.C
+echo "exit(0);" >> rdfile.C
+echo "}" >> rdfile.C
+chmod a+x rdfile.C
+date=`date +"%H:%M:%S"`
+
+echo "$date:  running the root macro just created against the tURL returned by SRM" >> SAMOUT 
+
+root -b -q rdfile.C  > ROOTOUT 2>&1
+
+if [ $? == "0" ];then 
+  date=`date +"%H:%M:%S"`
+  cat ROOTOUT >>SAMOUT
+  echo "$date: File correctly open and read by ROOT" >> SAMOUT
+  echo "Test succeeded. File correctly open and read by ROOT" 
+  cat SAMOUT
+  exit $NAGIOS_OK
+else
+  date=`date +"%H:%M:%S"`
+  rooter=0
+  rooter=`grep "Error in <TDCacheFile" ROOTOUT |wc -l`
+  if [ $rooter != "0" ];then
+   cat ROOTOUT >>SAMOUT
+   echo "$date : Error in ROOT macro opening/reading the file"  >>SAMOUT
+   echo "Error in ROOT macro opening/reading the file"
+   cat SAMOUT
+   exit $NAGIOS_ERROR
+  else
+   cat ROOTOUT >>SAMOUT
+   echo "$date : File access problems: root macro returned some non root bound error" >>SAMOUT
+   echo "Test not completely successful. This might be due to a library missing...exiting with INFO"
+   cat SAMOUT
+   exit $NAGIOS_WARNING
+  fi
+fi
+
+exit 0

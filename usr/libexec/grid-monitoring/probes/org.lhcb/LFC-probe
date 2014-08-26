@@ -1,0 +1,276 @@
+#!/usr/bin/env python
+#
+# LFC Probe script.  Runs a set of probes against an LFC server
+#
+# Includes a reasonably generic probe framework
+#
+# James Casey <james.casey@cern.ch>
+# Roberto Santinelli <Roberto.Santinelli@cern.ch>
+#
+
+import os
+import sys
+import getopt
+import time
+import errno
+import commands
+
+try:
+    from gridmon import probe
+    import lfc
+except ImportError,e:
+    summary = "UNKNOWN: Error loading modules : %s" % (e)
+    sys.stdout.write(summary+'\n')
+    sys.stdout.write(summary+'\nsys.path: %s\n'% str(sys.path))
+    sys.exit(3)
+    
+def parse_args(self, opts):
+    print "In parse_args"
+    for o,v in opts:
+        if o in ('--ReplicationTimeout'):
+            self.Replicationtimeout = int(v)
+        elif o in ('--lfcHost'):
+            self.hostName=v
+            
+def parse_uri(uri):
+    """Return the [host, port] from the lfc URI.  Accepts:
+    lfc://host/
+    lfc://host:port/
+    lfc://host
+    lfc://host:port
+    host
+    host:port"""
+
+    import re
+    match = re.match('([a-z]*://)?([^/:$]*):?(\d+)?/?', uri)
+    return (match.group(2), match.group(3))
+
+class LFCMetrics(probe.MetricGatherer) :
+    """A Metric Gatherer specific for the LFC.  Handles the same
+    metrics as the original perl LEMON sensor code"""
+    OPS_DIR="/grid/ops"
+
+
+    def __init__(self, tuples, timeout= None):
+        
+        probe.MetricGatherer.__init__(self,tuples,'LFC')
+        if not tuples.has_key('serviceURI'):
+            raise TypeError("No serviceURI passed in")
+        [self.hostName, self.portNumber] = parse_uri(tuples['serviceURI'])
+
+        os.environ['LFC_HOST'] = self.hostName
+        print self.hostName
+        if self.portNumber:
+            os.environ['LFC_PORT'] = self.portNumber
+
+        os.environ['LFC_CONRETRY']="0"
+        if timeout:
+            os.environ['LFC_CONNTIMEOUT']= timeout
+        else:
+            os.environ['LFC_CONNTIMEOUT']="15"
+        
+        self.ReplicationTimeout = 120
+        self.errbuf=" "*120
+        lfc.lfc_seterrbuf(self.errbuf,len(self.errbuf))
+
+        self.probeinfo = { 'probeName' : 'org.lhcb.LFC-Probe',
+                           'probeVersion' : '1.1',
+                           'serviceVersion' : '>= 1.6.0'}
+        _metrics = { 'Read' :{ 'metricName' : 'org.lhcb.LFC-Read',
+                                       'metricLocality' : 'remote', 'metricType' : 'status',
+                                       'metricDescription' :"Test if we can read an entry in the catalog"},
+                      'Write' :{'metricName' : 'org.lhcb.LFC-Write',
+                                'metricLocality' : 'remote', 'metricType' : 'status',
+                                'metricDescription' : "Test if we can update the modification time of an entry in the catalog"},
+                      'Readdir' :{'metricName' : 'org.lhcb.LFC-Readdir',
+                                              'metricLocality' : 'remote', 'metricType' : 'performance',
+                                              'dataType' : 'float',
+                                              'metricDescription':"Time how long it takes to read a directory (/grid)"},
+                      'Ping' :{'metricName' : 'org.lhcb.LFC-Ping',
+                                  'metricLocality' : 'remote', 'metricType' : 'status',
+                                  'metricDescription':"Ping LFC service."},
+                      'Replicate' :{'metricName' : 'org.lhcb.LFC-Replicate',
+                                  'metricLocality' : 'remote', 'metricType' : 'status',
+                                  'cmdLineOptions'   : ['ReplicationTimeout='],
+                                  'metricDescription':"Replicate a file across Master and Slave LFC services."},
+                     'AllLHCb'      : {'metricName' : 'org.lhcb.LFC-AllLHCb',
+                             'metricDescription': "Run all LFC specific metrics for Read-only endpoints.",
+                             'cmdLineOptions'   : [],
+                             'cmdLineOptionsReq' : [],
+                             'metricsOrder'     : ['Ping','Read','Readdir','Replicate']
+                             }
+
+                     }
+                     
+        self.ns = 'org.lhcb'
+        self.set_metrics(_metrics)
+
+    def metricAllLHCb(self):
+        return self.metricAll('AllLHCb')
+
+    def __exists(self,lfn):
+        os.environ['LFC_HOST']=self.hostName
+        value = lfc.lfc_access(lfn,0)
+        if value == 0:
+            return True
+        else:
+            return False
+
+    def metricReplicate(self):
+        "Test if we the Oracle stream replication mechanism works for RO LFC an entry in the catalog"
+#now creating the entry in the master
+        os.environ['LFC_HOST'] = "lfc-lhcb.cern.ch"
+        DIR_NAME = "/grid/%s/test/lfc-replication/%s/testFile.%s" % (self.voName,self.hostName,time.time())
+        print "Registering file %s into LFC matser at CERN" % DIR_NAME
+        guid=commands.getoutput('uuidgen')
+        lfc.lfc_umask(0000)
+        res = lfc.lfc_creatg(DIR_NAME, guid, 0664)
+        if res != 0:
+            err_num = lfc.cvar.serrno
+            err_string = lfc.sstrerror(err_num)
+            return (2, "Can't register file on Master: "+err_string)
+        res = lfc.lfc_addreplica(guid, None, "test.example.com", "srm://test.example.com/%s/file-%s-%s"%(self.voName, self.hostName, guid),"-", "P","", "")
+        if res != 0:
+            err_num = lfc.cvar.serrno
+            err_string = lfc.sstrerror(err_num)
+            return (2, "Can't add replica on Master : %s"%err_string)
+#Now checking on the remote RO LFC....
+        os.environ['LFC_HOST']=self.hostName
+        timeToFindReplica=0
+        print "Replication timeout set to: %s" % self.ReplicationTimeout
+        startTime = time.time()
+        exists = False
+        count = 0
+        while not exists:
+            value = lfc.lfc_access(DIR_NAME,0)
+            if value == 0:
+                exists = True
+            else:
+                exists = False
+            time.sleep(0.1)
+            count += 1
+            if count*0.1 >= self.ReplicationTimeout:
+                break      
+            timeTillExists = time.time()-startTime
+            
+        if timeTillExists > self.ReplicationTimeout:
+            timeToFindReplica = self.ReplicationTimeout
+            return (2, "After %s seconds replica not propagated to T1"%timeToFindReplica)
+        else:
+            timeToFindReplica = timeTillExists
+            return (0,"Replication took %s seconds"%timeToFindReplica)
+#here we have to clean up the master
+
+
+    def metricRead(self):
+        "Test if we can read an entry in the catalog"
+        DIR_NAME = "/grid/%s"%self.voName
+
+        stat = lfc.lfc_filestatg()
+        res = lfc.lfc_statg(DIR_NAME, "", stat)
+        if res == 0:
+            return (0, "OK")
+        else:
+            err_num = lfc.cvar.serrno
+            err_string = lfc.sstrerror(err_num)
+            return (2, "Trying to statg(%s) : %s"%(DIR_NAME,err_string))
+
+    def metricWrite(self):
+        "Test if we can update the modification time of an entry in the catalog"
+
+        FILE_NAME="/grid/%s/SAM/file-lfc-probe-%s"%(self.voName,self.hostName)
+
+        res = lfc.lfc_utime(FILE_NAME, None)
+        if res == 0:
+            return (0, "OK")
+        else:
+            err_num = lfc.cvar.serrno
+            # try again since this could just be non-retried DB problem
+            if err_num != errno.ENOENT :
+                res = lfc.lfc_utime(FILE_NAME,None)
+                if res != 0:
+                    err_num = lfc.cvar.serrno
+                    err_string = lfc.sstrerror(err_num)
+                    return (2, err_string)
+            else: # try and create the file
+                uuid=None
+                import commands
+                def uuidgen():
+                    return commands.getoutput('uuidgen')
+                guid = uuidgen()
+
+                lfc.lfc_umask(0000)
+                res = lfc.lfc_creatg(FILE_NAME, guid, 0664)
+                if res != 0:
+                    err_num = lfc.cvar.serrno
+                    err_string = lfc.sstrerror(err_num)
+                    return (2, err_string)
+                res = lfc.lfc_addreplica(guid, None, "test.example.com",
+                                         "srm://test.example.com/%s/file-%s-%s"%(self.voName, self.hostName, guid),
+                                         "-", "P","", "")
+                if res != 0:
+                    err_num = lfc.cvar.serrno
+                    err_string = lfc.sstrerror(err_num)
+                    return (2, "Can't add replica : %s"%err_string)
+                # can't rely on default group ACLs on the parent directory
+                # add VO's root group write access ACL explicitly
+                try:
+                    # lfc.lfc_getgrpbynam() swig wrap is buggy; use lfc2
+                    import lfc2
+                    gid = lfc2.lfc_getgrpbynam(self.voName)
+                except Exception, e:
+                    return (3, "Couldn't add VO's root group write access ACL: %s" % str(e))
+                else:
+                    _, acls_list = lfc.lfc_getacl(FILE_NAME,
+                                                  lfc.CA_MAXACLENTRIES)
+                    acl_grp = lfc.lfc_acl()
+                    acl_grp.a_type = lfc.CNS_ACL_GROUP
+                    acl_grp.a_id   = gid
+                    acl_grp.a_perm = 6
+                    acls_list.append(acl_grp)
+                    # we need to add mask as well
+                    acl_m = lfc.lfc_acl()
+                    acl_m.a_type = lfc.CNS_ACL_MASK
+                    acl_m.a_id   = 0
+                    acl_m.a_perm = 6
+                    acls_list.append(acl_m)
+                    try:
+                        lfc2.lfc_setacl(FILE_NAME, acls_list)
+                    except Exception, e:
+                        return (3, "Couldn't add VO's root group write access ACL: %s" % str(e))
+
+        return (0, "OK")
+
+    def metricReaddir(self):
+        "Time how long it takes to read a directory (/grid)"
+        READDIR_DIR='/grid'
+
+        dir = lfc.lfc_opendir(READDIR_DIR)
+        if dir == None:
+            err_num = lfc.cvar.serrno
+            err_string = lfc.sstrerror(err_num)
+            return (2, err_string)
+
+        start = time.time()
+        entry = lfc.lfc_readdirg(dir)
+        while entry:
+            entry = lfc.lfc_readdirg(dir)
+
+        end = time.time()
+        return (0, "%2.3f"%(end-start))
+
+
+    def metricPing(self):
+        'Ping LFC service.'
+
+        ver = ' '*256
+        res = lfc.lfc_ping(self.hostName, ver)
+        if res == 0:
+            return ('OK', '%s\n'%ver.rstrip())
+        else:
+            err_num = lfc.cvar.serrno
+            err_string = lfc.sstrerror(err_num)
+            return ('CRITICAL', err_string)
+
+runner = probe.Runner(LFCMetrics, probe.ProbeFormatRenderer())
+sys.exit(runner.run(sys.argv))

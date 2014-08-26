@@ -1,0 +1,29 @@
+#!/bin/bash
+#****** WN-sft-lcg-rm-gfal
+# NAME
+# CE-sft-lcg-rm-gfal - Check if $LCG_GFAL_INFOSYS variable is set.
+
+NAGIOS_OK=0
+NAGIOS_ERROR=2
+OUTPUT=""
+
+OUTPUT="Checking the value of LCG_GFAL_INFOSYS variable:"
+if [ "$LCG_GFAL_INFOSYS" == "" ] ; then
+    echo "Test Failed!"
+    OUTPUT=${OUTPUT}"LCG_GFAL_INFOSYS variable is not set!"
+    echo $OUTPUT
+    result=1
+else
+    echo "Test succeeded!"
+    OUTPUT=${OUTPUT}"LCG_GFAL_INFOSYS=$LCG_GFAL_INFOSYS"
+    echo $OUTPUT
+     result=0
+fi
+
+if [ $result == 0 ]; then
+    exit $NAGIOS_OK
+else
+    exit $NAGIOS_ERROR
+fi
+    
+#****
