@@ -36,7 +36,6 @@ install --directory %{buildroot}%{dir2}
 %{__cp} -rpf .%dir/LFC-probe  %{buildroot}%{dir}
 %{__cp} -rpf .%dir/srmvometrics.py  %{buildroot}%{dir}
 %{__cp} -rpf .%dir2/ncg-metric-config.d %{buildroot}%{dir2}
-%{__cp} -rpf .%dir2/ncg %{buildroot}%{dir2}
 
 %clean
 %{__rm} -rf %{buildroot}
