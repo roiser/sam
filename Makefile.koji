@@ -8,3 +8,4 @@ all:
 
 clean:
 	rm $(TARFILE)
+	rm -fr $(PKGNAME)
