@@ -2,7 +2,9 @@ PKGNAME=grid-monitoring-probes-org.lhcb-0.3.3
 TARFILE=$(PKGNAME).tgz
 
 all:
-	tar cvzf $(TARFILE) --transform 's,^,$(PKGNAME)/,' etc usr
+	mkdir $(PKGNAME)
+	cp -r etc usr $(PKGNAME)
+	tar cvzf $(TARFILE) $(PKGNAME)
 
 clean:
 	rm $(TARFILE)
