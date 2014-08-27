@@ -50,7 +50,6 @@ install --directory %{buildroot}%{dir2}
 %{dir}/srmvometrics.pyc
 %{dir}/srmvometrics.pyo
 %{dir2}/ncg-metric-config.d
-%{dir2}/ncg
 
 %changelog
 * Mon Jul 6 2009 C. Triantafyllidis <ctria@grid.auth.gr> - 0.1.0-1
