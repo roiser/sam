@@ -5,8 +5,8 @@
 %define debug_package %{nil}
 
 Summary: WLCG Compliant Probes from %{site}
-Name: grid-monitoring-probes-org.lhcb
-Version: 0.3.3
+Name: nagios-plugins-wlcg-org.lhcb
+Version: 0.3.4
 Release: 1%{?dist}
 
 License: ASL 2.0

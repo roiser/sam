@@ -1,4 +1,4 @@
-PKGNAME=grid-monitoring-probes-org.lhcb-0.3.3
+PKGNAME=nagios-plugins-wlcg-org.lhcb-0.3.4
 TARFILE=$(PKGNAME).tgz
 
 all:
