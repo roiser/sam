@@ -1,7 +1,6 @@
 %define site org.lhcb
 %define dir %{_libexecdir}/grid-monitoring/probes/%{site}
 %define dir2 /etc
-%define dir3 /etc/ncg
 
 %define debug_package %{nil}
 
@@ -37,7 +36,7 @@ install --directory %{buildroot}%{dir2}
 %{__cp} -rpf .%dir/LFC-probe  %{buildroot}%{dir}
 %{__cp} -rpf .%dir/srmvometrics.py  %{buildroot}%{dir}
 %{__cp} -rpf .%dir2/ncg-metric-config.d %{buildroot}%{dir2}
-%{__cp} -rpf .%dir3/ncg-localdb.d %{buildroot}%{dir3}
+%{__cp} -rpf .%dir2/ncg/ncg-localdb.d %{buildroot}%{dir2}/ncg
 %clean
 %{__rm} -rf %{buildroot}
 
@@ -50,7 +49,7 @@ install --directory %{buildroot}%{dir2}
 %{dir}/srmvometrics.pyc
 %{dir}/srmvometrics.pyo
 %{dir2}/ncg-metric-config.d
-%{dir3}/ncg-localdb.d
+%{dir2}/ncg/ncg-localdb.d
 
 %changelog
 * Mon Jul 6 2009 C. Triantafyllidis <ctria@grid.auth.gr> - 0.1.0-1
