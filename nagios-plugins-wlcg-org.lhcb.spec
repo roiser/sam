@@ -31,12 +31,14 @@ export DONT_STRIP=1
 %{__rm} -rf %{buildroot}
 install --directory %{buildroot}%{dir}
 install --directory %{buildroot}%{dir2}
+install --directory %{buildroot}%{dir2}/ncg
 %{__cp} -rpf .%dir/wnjob  %{buildroot}%{dir}
 %{__cp} -rpf .%dir/SRM-probe  %{buildroot}%{dir}
 %{__cp} -rpf .%dir/LFC-probe  %{buildroot}%{dir}
 %{__cp} -rpf .%dir/srmvometrics.py  %{buildroot}%{dir}
 %{__cp} -rpf .%dir2/ncg-metric-config.d %{buildroot}%{dir2}
 %{__cp} -rpf .%dir2/ncg/ncg-localdb.d %{buildroot}%{dir2}/ncg
+
 %clean
 %{__rm} -rf %{buildroot}
 
