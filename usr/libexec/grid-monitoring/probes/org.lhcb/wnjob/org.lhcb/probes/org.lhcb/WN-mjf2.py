@@ -13,7 +13,8 @@ class mjf:
         self.logdict = {'Info' : 0, 
                         'Warning' : 1, 
                         'Error' : 2}
-        self.logdictinv = {v : k.upper() for k, v in self.logdict.items()}
+        #self.logdictinv = {v : k.upper() for k, v in self.logdict.items()}
+	self.logdictinv = {0: 'Info', 1 : 'Warning', 2 : 'Error'}
         self.reportline = 'Probe executed successfully'
 
     def log(self, loglevel, logline):
