@@ -3,7 +3,7 @@ TARFILE=$(PKGNAME).tgz
 
 all:
 	mkdir $(PKGNAME)
-	cp -r etc usr $(PKGNAME)
+	cp -r usr $(PKGNAME)
 	tar cvzf $(TARFILE) $(PKGNAME)
 
 clean:
