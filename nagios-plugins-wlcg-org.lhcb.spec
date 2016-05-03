@@ -58,7 +58,7 @@ install --directory %{buildroot}%{dir2}
 %{dir2}/lhcb_webdav.pyo
 
 %changelog
-* May 9 2016 Marian Babik <marian.babik@cern.ch> - 0.3.6-1
+* Tue May 9 2016 Marian Babik <marian.babik@cern.ch> - 0.3.6-1
 - New MJF probe
 - Added ETF configuration
 
