@@ -1,5 +1,0 @@
-ADD_SERVICE_METRIC!NAGIOS!emi.cream.glexec.CREAMCE-DirectJobMonit
-ADD_SERVICE_METRIC!NAGIOS!org.sam.ARC-JobMonit
-
-VO_ATTRIBUTE!/lhcb/Role=pilot!ARC-JOBSUBMIT-PARAMETERS!/usr/libexec/grid-monitoring/probes/nagios-plugins-emi.glexec,/usr/libexec/grid-monitoring/probes/nagios-plugins-emi.glexec-config
-VO_ATTRIBUTE!/lhcb/Role=production!ARC-JOBSUBMIT-PARAMETERS!/usr/libexec/grid-monitoring/probes/org.lhcb/wnjob/org.lhcb
