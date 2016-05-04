@@ -36,6 +36,6 @@ def run():
                   params={'args': {'--uri': uri}, '_unique_tag': 'HTTPS'})
             h.add(puri.hostname, tags=('HTTPS',))
             for metric in WEBDAV_METRICS:
-                c.add(metric, hosts=(puri.hostname,), params={'_unique_tag': 'SRMv2'})
+                c.add(metric, hosts=(puri.hostname,), params={'_unique_tag': 'HTTPS'})
     h.serialize(fname='/etc/ncgx/conf.d/generated_hosts_webdav.cfg')
     c.serialize(fname='/etc/ncgx/conf.d/generated_webdav.cfg')
