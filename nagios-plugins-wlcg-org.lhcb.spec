@@ -7,7 +7,7 @@
 Summary: WLCG Compliant Probes from %{site}
 Name: nagios-plugins-wlcg-org.lhcb
 Version: 0.3.6
-Release: 1%{?dist}
+Release: 3%{?dist}
 
 License: ASL 2.0
 Group: Network/Monitoring
@@ -58,7 +58,7 @@ install --directory %{buildroot}%{dir2}
 %{dir2}/lhcb_webdav.pyo
 
 %changelog
-* Tue May 9 2016 Marian Babik <marian.babik@cern.ch> - 0.3.6-1
+* Tue May 9 2016 Marian Babik <marian.babik@cern.ch> - 0.3.6-3
 - New MJF probe
 - Added ETF configuration
 
