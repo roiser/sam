@@ -1,4 +1,4 @@
-PKGNAME=nagios-plugins-wlcg-org.lhcb-0.3.7
+PKGNAME=nagios-plugins-wlcg-org.lhcb-0.3.6
 TARFILE=$(PKGNAME).tgz
 
 all:
