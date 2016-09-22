@@ -63,6 +63,13 @@ def run(url):
     c.add_all(CONDOR_METRICS, tags=["HTCONDOR-CE", ])
     c.add_all(WN_METRICS, tags=["ARC-CE", "CREAM-CE"])
     c.add_all(SRM_METRICS, tags=["SRMv2", ])
+
+    for service in services: # special handling for HTCONDOR-CEs (no BDII)
+        if service[1] == 'HTCONDOR-CE':
+            c.add('org.sam.CONDOR-JobState-/lhcb/Role=production', (service[0],),
+                  params={'args': {'--resource': 'htcondor://%s' % service[0]}})
+            c.add('org.sam.CONDOR-JobState-/lhcb/Role=pilot', (service[0],),
+                  params={'args': {'--resource': 'htcondor://%s' % service[0]}})
     c.serialize()
 
     # Add host groups
