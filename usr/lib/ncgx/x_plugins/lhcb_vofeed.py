@@ -61,7 +61,7 @@ def run(url):
     c.add_all(CREAM_METRICS, tags=["CREAM-CE", ])
     c.add_all(ARC_METRICS, tags=["ARC-CE", ])
     c.add_all(CONDOR_METRICS, tags=["HTCONDOR-CE", ])
-    c.add_all(WN_METRICS, tags=["ARC-CE", "CREAM-CE"])
+    c.add_all(WN_METRICS, tags=["ARC-CE", "CREAM-CE", "HTCONDOR-CE"])
     c.add_all(SRM_METRICS, tags=["SRMv2", ])
 
     for service in services: # special handling for HTCONDOR-CEs (no BDII)
