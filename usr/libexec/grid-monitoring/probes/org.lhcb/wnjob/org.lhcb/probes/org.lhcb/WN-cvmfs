@@ -11,7 +11,7 @@
 
 ## variables to configure the probe
 DEF_REPOSITORIES="lhcb.cern.ch"        # space delimited list of repositories to test and must work
-OPT_REPOSITORIES="" # lhcb-conddb.cern.ch" # space delimited list of optional repositories to test, 
+OPT_REPOSITORIES="lhcb-condb.cern.ch"  # space delimited list of optional repositories to test, 
                                        # any test failing for those will not update the return code of the probe, 
                                        # the error/warning will still be printed
 VO_NAME="LHCB"                         # name of the VO in all upper case letters
